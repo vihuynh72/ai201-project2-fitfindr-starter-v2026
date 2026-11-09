@@ -59,24 +59,25 @@
 
 ### `search_listings`
 
-- **What it does:**
-- **Inputs:** <!-- name and type each: `max_price` (float), not "a price" -->
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** digs through the listings for stuff that fits what you typed, under your price and in your size, with the closest match first. No model involved.
+- **Inputs:** `description` (str, like "vintage graphic tee"), `size` (str, or None if you don't care), `max_price` (float, or None, and the price itself is allowed)
+- **Returns:** a list of listing dicts, each with the usual stuff: title, price, size, platform, condition, colors, style tags and so on. Brand is often None, that's normal. Ranked by how many of your words show up, and capped at a handful.
+- **When it has nothing:** an empty list. Not None, not an error. The loop relies on that.
+- **Sizes:** I'm matching whole pieces of the size, not letters. "M" should find "S/M" and "M/L", but "L" shouldn't grab "XL" and "S" shouldn't grab "US 9".
 
 ### `suggest_outfit`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** asks the model for an outfit or two built around the thrifted piece, using things you already own.
+- **Inputs:** `new_item` (dict, the listing), `wardrobe` (dict with an `items` list)
+- **Returns:** a string with the outfit ideas, never blank. If you have a wardrobe it should name your actual pieces.
+- **When it has nothing:** if the wardrobe is empty it still answers, just with general styling tips for the item instead of specific combos.
 
 ### `create_fit_card`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** writes a short caption you could actually post about the find.
+- **Inputs:** `outfit` (str, the suggestion from the last step), `new_item` (dict, the listing)
+- **Returns:** a string, 2 to 4 sentences, that mentions the item, the price and the platform once each. Should sound different from run to run.
+- **When it has nothing:** if the outfit is blank, it skips the model and just returns a short message saying there's no outfit to write about.
 
 ---
 
@@ -93,7 +94,7 @@
      The grader checks your code against what you claim here, so the file and
      function have to be real. -->
 
-**Branch rule:**
+**Branch rule:** If the search comes back empty, stop right there. Put a message in the session that tells the user what to try (a higher price, no size, fewer words), and don't run the outfit or caption steps. Otherwise take the first result, save it as the selected item, and move on to the outfit step.
 
 **Where it lives:** `agent.py::run_agent`
 
