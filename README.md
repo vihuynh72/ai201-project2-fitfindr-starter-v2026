@@ -39,8 +39,7 @@
 
 ## What This Does
 
-<!-- Three or four sentences: what a user asks for, and what they get back. -->
-
+You type what you're looking for, like "vintage graphic tee under $30, size M". FitFindr searches a set of thrift listings, picks the best match, figures out how it would go with stuff in your closet, and writes a caption you could post. If nothing matches, it stops and tells you what to change instead of making something up.
 
 
 ---
@@ -98,9 +97,9 @@
 
 **Where it lives:** `agent.py::run_agent`
 
-**How the query is parsed:** <!-- regex, string splitting, or asking the model — say which -->
+**How the query is parsed:** regex. One pattern grabs a price ("under $30", "below 40", "$30") and one grabs a size ("size M", "size W30"). Whatever is left over is the description. It only catches sizes that come after the word "size".
 
-**What moves through the session:** <!-- which fields, in what order -->
+**What moves through the session:** the query goes in first, then the parsed bits, then the search results. The first result becomes the selected item, which goes into the outfit step, and the outfit goes into the fit card. Each step reads its input back out of the session, and I also save the id of the item the outfit step got, so I can check it's the same one the search picked.
 
 ---
 
@@ -121,8 +120,11 @@ $ python app.py ask '...'
 **The three tools, tested one at a time**
 
 ```
-$ python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
+$ python -c "from tools import search_listings; print([(x['title'], x['price']) for x in search_listings('graphic tee', max_price=30)[:3]])"
+[('Y2K Baby Tee — Butterfly Print', 18.0), ('Graphic Tee — 2003 Tour Bootleg Style', 24.0), ('Mesh Long-Sleeve Top — Black', 15.0)]
 
+$ python -c "from tools import search_listings; print(search_listings('designer ballgown', size='XXS', max_price=5))"
+[]
 ```
 
 ```
@@ -148,15 +150,15 @@ $ python -c "from tools import create_fit_card; ..."
 
 **Moment 1**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I gave Claude my Tool Inventory spec and asked it to build the three tools.
+- *What came back:* search_listings worked and returned an empty list on no match, like my spec said. But for "graphic tee under $30" it also returned a mesh top further down the list, because one matching word is enough to count.
+- *What I changed:* nothing yet. The best match comes first and the loop only uses the first result, so I left it. I'd tighten it if the later results start to matter.
 
 **Moment 2**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I asked Claude to write the planning loop and a way to read the price and size out of the query.
+- *What came back:* the loop worked, but for "a vintage graphic tee under $30, size M" the description came out as "a vintage graphic tee ," with a stray comma, which would have shown up in the error message.
+- *What I changed:* I strip the leftover punctuation off the description. I found it by running a few queries through the parser before trusting it.
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
