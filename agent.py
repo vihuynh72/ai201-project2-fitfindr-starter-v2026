@@ -18,7 +18,7 @@ import re
 import config
 import trace
 from tools import suggest_outfit, create_fit_card
-from mcp_client import call_tool
+from mcp_client import call_tool, MCPError
 from generate import ModelUnavailable
 
 
@@ -113,33 +113,49 @@ def run_agent(query: str, wardrobe: dict) -> dict:
 
     # Each pass looks at the session and does the next thing that's missing.
     count = 0
-    while session["fit_card"] is None and not session["error"]:
-        count += 1
-        trace.check_iterations(count)
+    try:
+        while session["fit_card"] is None and not session["error"]:
+            count += 1
+            trace.check_iterations(count)
 
-        if not session["parsed"]:
-            session["parsed"] = _parse(session["query"])
+            if not session["parsed"]:
+                session["parsed"] = _parse(session["query"])
+                trace.step("parse query", inputs=session["query"], returned=session["parsed"])
 
-        elif session["selected_item"] is None:
-            p = session["parsed"]
-            session["search_results"] = call_tool("search_listings", {
-                "description": p["description"],
-                "size": p["size"],
-                "max_price": p["max_price"],
-            })
-            if not session["search_results"]:
-                # the branch: nothing found, so stop here
-                session["error"] = _no_results_message(p)
+            elif session["selected_item"] is None:
+                p = session["parsed"]
+                session["search_results"] = call_tool("search_listings", {
+                    "description": p["description"],
+                    "size": p["size"],
+                    "max_price": p["max_price"],
+                })
+                trace.step("search_listings (via MCP)", inputs=p, returned=session["search_results"])
+                if not session["search_results"]:
+                    # the branch: nothing found, so stop here
+                    session["error"] = _no_results_message(p)
+                    trace.step("branch", note="search came back empty, stopping before suggest_outfit")
+                else:
+                    session["selected_item"] = session["search_results"][0]
+
+            elif session["outfit_suggestion"] is None:
+                item = session["selected_item"]
+                session["outfit_item_id"] = item["id"]  # what actually went into the tool, for checking state
+                session["outfit_suggestion"] = suggest_outfit(item, session["wardrobe"])
+                trace.step("suggest_outfit", inputs=f"{item['title']} + {len(session['wardrobe'].get('items', []))} wardrobe items",
+                           returned=session["outfit_suggestion"])
+
             else:
-                session["selected_item"] = session["search_results"][0]
+                session["fit_card"] = create_fit_card(session["outfit_suggestion"], session["selected_item"])
+                trace.step("create_fit_card", inputs=session["selected_item"], returned=session["fit_card"])
 
-        elif session["outfit_suggestion"] is None:
-            item = session["selected_item"]
-            session["outfit_item_id"] = item["id"]  # what actually went into the tool, for checking state
-            session["outfit_suggestion"] = suggest_outfit(item, session["wardrobe"])
-
-        else:
-            session["fit_card"] = create_fit_card(session["outfit_suggestion"], session["selected_item"])
+    except ModelUnavailable as exc:
+        session["error"] = (f"I couldn't reach the model, so I can't write the outfit or the caption. {exc} "
+                            f"Fix that, or wait a minute if you were going fast, then ask again.")
+        trace.step("model unavailable", note="stopped")
+    except MCPError as exc:
+        session["error"] = (f"The search tool didn't respond, so I couldn't look for listings. {exc} "
+                            f"Check that 'python mcp_server.py' starts on its own, then ask again.")
+        trace.step("search server unavailable", note="stopped")
 
     return session
 
