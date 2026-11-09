@@ -269,21 +269,25 @@ full. -->
 
      `python run_eval.py --label after` -->
 
-**What I changed:**
+**What I changed:** the model adapter now waits and retries when Gemini says 503 "unavailable", the same way it already did for rate limits. If it still fails after all the attempts, it raises the same error my handler already catches, so it can't crash the run.
 
-**Which failure it was meant to fix:**
+**Which failure it was meant to fix:** all 3 misses before were 503 outages, so this one change targets all of them.
 
 ### Run Log — After
 
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. Matching query completes all three tools | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. Impossible query stops before suggest_outfit | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. Same item reaches suggest_outfit, fit card has its price | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. Fit card is 2-4 sentences with price and platform | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 5. Empty wardrobe still gives outfit and fit card | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
-**Did it help, and how do I know:**
+Full output is in `results/run_2026-11-09_1232_after.md`.
+
+**Did it help, and how do I know:** yes. Criterion 3 went from MISSED (4/5) to MET (5/5), and criteria 4 and 5 went from 4/5 to 5/5. Every try finished, none stopped on an outage. The run used 41 model calls against 39 before, which fits one retry that got through.
+
+One caveat: 503s come and go, so a single clean run doesn't prove the fix. Before, I got 3 outages in 20 model runs, and this time I got none that reached the user, but that's one sample. Criterion 3 is also still worded badly, it just got lucky.
 
 <!-- If it made things worse, say that. Honestly reported, that earns full
      credit and is more interesting than one that worked. -->

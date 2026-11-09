@@ -327,6 +327,7 @@ def generate(
                 "429" in message
                 or "resource" in message and "exhaust" in message
                 or "rate" in message and "limit" in message
+                or "503" in message and "unavailable" in message  # busy service, worth a retry
             )
             if not rate_limited:
                 raise ModelUnavailable(_explain(exc)) from exc
@@ -340,7 +341,7 @@ def generate(
             )
             time.sleep(backoff)
 
-    raise RuntimeError(
-        f"Still rate limited after {config.MAX_RETRIES} attempts. Wait a "
+    raise ModelUnavailable(
+        f"Still busy after {config.MAX_RETRIES} attempts. Wait a "
         f"minute and try again — your key is fine.\nLast error: {last_error}"
     )
