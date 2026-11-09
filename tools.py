@@ -20,12 +20,22 @@ That last line is what your loop branches on. "Returns a list" earns nothing —
 the description has to say what is *in* the list.
 """
 
-import config  # noqa: F401 — you'll use this in search_listings
+import re
+
+import config
 from generate import generate
 from utils.data_loader import load_listings
 
 
 # ── Tool 1: search_listings ───────────────────────────────────────────────────
+
+_FILLER = {"a", "an", "the", "for", "in", "of", "to", "and", "with", "under", "size", "i", "want", "looking", "find", "me"}
+
+
+def _stem(word: str) -> str:
+    # crude plural fix so "tees" finds "tee". Won't handle anything fancier.
+    return word[:-1] if len(word) > 3 and word.endswith("s") else word
+
 
 def search_listings(
     description: str,
@@ -78,8 +88,25 @@ def search_listings(
     Test it from a terminal before you move on:
         python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
     """
-    # TODO: replace this with your implementation
-    return []
+    words = {_stem(w) for w in re.findall(r"[a-z0-9']+", description.lower())} - _FILLER
+    wanted_size = set(re.findall(r"[a-z0-9.]+", size.lower())) if size else set()
+
+    scored = []
+    for item in load_listings():
+        if max_price is not None and item["price"] > max_price:
+            continue
+        # whole pieces of the size, so "L" doesn't hit "XL" and "S" doesn't hit "US 9"
+        if wanted_size and not wanted_size <= set(re.findall(r"[a-z0-9.]+", item["size"].lower())):
+            continue
+        text = " ".join([item["title"], item["description"], item["category"], item["brand"] or "",
+                         *item["style_tags"], *item["colors"]])
+        have = {_stem(w) for w in re.findall(r"[a-z0-9']+", text.lower())}
+        score = len(words & have)
+        if score:
+            scored.append((score, item))
+
+    scored.sort(key=lambda pair: -pair[0])  # sort is stable, so ties keep file order
+    return [item for _, item in scored[:config.SEARCH_RESULT_LIMIT]]
 
 
 # ── Tool 2: suggest_outfit ────────────────────────────────────────────────────
@@ -112,8 +139,21 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
     Test it from a terminal before you move on:
         python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
     """
-    # TODO: replace this with your implementation
-    return ""
+    if wardrobe.get("items"):
+        closet = "\n".join(
+            f"- {w['name']} ({', '.join(w['colors'])}; {', '.join(w['style_tags'])})"
+            for w in wardrobe["items"]
+        )
+        ask = ("Suggest one or two outfits that use this piece with things from my closet. "
+               "Name the closet pieces you use.\n\nMy closet:\n" + closet)
+    else:
+        ask = ("My closet is empty, so give me general styling ideas for this piece: "
+               "what kinds of items go with it and what vibe it gives.")
+
+    prompt = (f"I'm thinking about buying this secondhand: {new_item['title']} "
+              f"({', '.join(new_item['colors'])}; {', '.join(new_item['style_tags'])}).\n\n{ask}\n\n"
+              "Keep it short, plain text, no headings.")
+    return generate(prompt)
 
 
 # ── Tool 3: create_fit_card ───────────────────────────────────────────────────
@@ -152,5 +192,13 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
     Test it from a terminal before you move on:
         python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('jeans and white sneakers', load_listings()[0]))"
     """
-    # TODO: replace this with your implementation
-    return ""
+    if not outfit or not outfit.strip():
+        return "No outfit to write about yet, so there's no fit card."
+
+    prompt = (f"Write a 2 to 4 sentence caption for a post about a thrift find. It should read like a real "
+              f"person posting, not a product description.\n\n"
+              f"Item: {new_item['title']}, ${new_item['price']:.0f} on {new_item['platform']}\n"
+              f"Outfit idea: {outfit}\n\n"
+              "Mention the item, the price and the platform once each, and be specific about the vibe. "
+              "Just the caption.")
+    return generate(prompt)
