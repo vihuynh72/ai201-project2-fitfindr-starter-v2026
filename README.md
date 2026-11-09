@@ -180,18 +180,13 @@ $ python -c "from tools import create_fit_card; ..."
 
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. Matching query completes all three tools | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. Impossible query stops before suggest_outfit | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. Same item reaches suggest_outfit, fit card has its price | 5 of 5 | PASS | PASS | FAIL | PASS | PASS | MISSED (4/5) |
+| 4. Fit card is 2-4 sentences with price and platform | 4 of 5 | PASS | PASS | PASS | PASS | FAIL | MET (4/5) |
+| 5. Empty wardrobe still gives outfit and fit card | 4 of 5 | PASS | PASS | PASS | PASS | FAIL | MET (4/5) |
 
-**Real output from one try**, pasted as text, naming the file and function
-that produced it:
-
-```
-
-```
+Full output is in `results/run_2026-11-08_2343_before.md`.
 
 ---
 
@@ -215,13 +210,20 @@ that produced it:
 
 | # | Criterion | Target | Verdict | How I decided |
 |---|---|---|---|---|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| 3 |  |  |  |  |
-| 4 |  |  |  |  |
-| 5 |  |  |  |  |
+| 1 | Matching query completes | 4 of 5 | MET | 5 of 5 reached the fit card. |
+| 2 | Impossible query stops early | 5 of 5 | MET | 5 of 5 stopped at the branch with a useful message. |
+| 3 | Same item + price in card | 5 of 5 | MISSED | 4 of 5. Try 3 had no card. |
+| 4 | Fit card format | 4 of 5 | MET | 4 of 5. Try 5 had no card. |
+| 5 | Empty wardrobe | 4 of 5 | MET | 4 of 5. Try 5 got no outfit. |
 
 **Diagnoses**
+
+All 3 misses were the same thing: Gemini returned "503 UNAVAILABLE, high demand". That's one problem, not three.
+
+- **Where:** the model. Criteria 3 and 4 failed in `create_fit_card`, criterion 5 in `suggest_outfit`.
+- **Why:** the adapter doesn't retry a 503, so the run stopped. My handler worked (no crash), but it prints the raw error.
+- **Criterion 3 was badly written.** The price-in-card part depends on the model, so an outage failed a state check. The state itself was fine, the same item went through every time (I matched by title, not id).
+- **Criteria 4 and 5** only passed with one try of slack. A second outage would have missed both.
 
 
 
