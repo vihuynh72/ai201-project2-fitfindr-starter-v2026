@@ -113,8 +113,15 @@ You type what you're looking for, like "vintage graphic tee under $30, size M". 
 **One full query**
 
 ```
-$ python app.py ask '...'
+$ python app.py ask 'vintage graphic tee under $30'
 
+  Found:    Y2K Baby Tee — Butterfly Print — $18.0 on depop
+
+  Outfit:   Outfit 1: Pair the butterfly baby tee with your baggy dark-wash straight-leg jeans, the black cropped zip hoodie thrown over top or worn open, chunky white sneakers, and the black crossbody bag for a classic Y2K streetwear look.
+
+Outfit 2: Tuck the baby tee into your wide-leg khaki trousers with the brown leather belt cinched at the waist, add the vintage black denim jacket, and finish with your black combat boots for a mix of vintage butterfly graphics and earthy tones.
+
+  Fit card: Scored this Y2K butterfly baby tee on Depop for just $18 and I am fully living out my early 2000s pop star dreams. Think loose dark-wash denim and chunky sneakers for an effortless off-duty streetwear vibe. So obsessed.
 ```
 
 **The three tools, tested one at a time**
@@ -128,13 +135,17 @@ $ python -c "from tools import search_listings; print(search_listings('designer 
 ```
 
 ```
-$ python -c "from tools import suggest_outfit; ..."
+$ python -c "from tools import search_listings, suggest_outfit; from utils.data_loader import get_example_wardrobe; item = search_listings('graphic tee', max_price=30)[0]; print(suggest_outfit(item, get_example_wardrobe()))"
+Outfit 1: Pair the butterfly baby tee with your baggy dark-wash straight-leg jeans, the black cropped zip hoodie thrown over top or worn open, chunky white sneakers, and the black crossbody bag for a classic Y2K streetwear look.
 
+Outfit 2: Tuck the baby tee into your wide-leg khaki trousers with the brown leather belt cinched at the waist, add the vintage black denim jacket, and finish with your black combat boots for a mix of vintage butterfly graphics and earthy tones.
 ```
 
 ```
-$ python -c "from tools import create_fit_card; ..."
+$ python -c "from tools import create_fit_card; print(create_fit_card('', {'title': 'x', 'price': 1, 'platform': 'y'}))"
+No outfit to write about yet, so there's no fit card.
 
+(with a real outfit and item, it prints the fit card shown above)
 ```
 
 ---
@@ -159,6 +170,18 @@ $ python -c "from tools import create_fit_card; ..."
 - *What I asked for:* I asked Claude to write the planning loop and a way to read the price and size out of the query.
 - *What came back:* the loop worked, but for "a vintage graphic tee under $30, size M" the description came out as "a vintage graphic tee ," with a stray comma, which would have shown up in the error message.
 - *What I changed:* I strip the leftover punctuation off the description. I found it by running a few queries through the parser before trusting it.
+
+**Moment 3 (unit 4)**
+
+- *What I asked for:* I gave Claude my run results and asked it to call each criterion MET or MISSED and diagnose the misses.
+- *What came back:* all 3 misses were the same 503 outage from Gemini, and it pointed out that criterion 3 was badly written, because it put a model output (the price in the card) inside a state check.
+- *What I changed:* I kept the verdicts as they were and listed criterion 3's wording as still broken instead of quietly editing my criteria.
+
+**Moment 4 (unit 4)**
+
+- *What I asked for:* I asked Claude to fix the one thing the diagnosis named.
+- *What came back:* a retry on 503. While making the change it noticed that if every retry failed, the adapter would raise a plain error that my handler doesn't catch, so the run would crash.
+- *What I changed:* I let that last error be the one my handler already catches, then ran the full test again.
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
@@ -241,22 +264,39 @@ All 3 misses were the same thing: Gemini returned "503 UNAVAILABLE, high demand"
      the same length, your branch isn't working — and this is the fastest way
      anyone will ever find that out. -->
 
-**Happy path**
+**Happy path** (`python app.py ask 'vintage graphic tee under $30' --trace`)
 
 ```
-
+[1] parse query
+      in:  vintage graphic tee under $30
+      out: dict with keys: description, size, max_price
+[2] search_listings (via MCP)
+      in:  dict with keys: description, size, max_price
+      out: 10 items: Y2K Baby Tee — Butterfly Print, Graphic Tee — 2003 Tour Bootleg Style, Vintage Band Tee — Faded Grey … +7 more
+[3] suggest_outfit
+      in:  Y2K Baby Tee — Butterfly Print + 10 wardrobe items
+      out: Outfit 1: Pair the butterfly baby tee with your baggy dark-wash straight-leg jeans, the black cropped zip hood…
+[4] create_fit_card
+      in:  Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      out: Scored this Y2K butterfly baby tee on Depop for just $18 and I am fully living out my early 2000s pop star dre…
 ```
 
-**Empty search**
+**Empty search** (`python app.py ask 'designer ballgown size XXS under $5' --trace`)
 
 ```
-
+[1] parse query
+      in:  designer ballgown size XXS under $5
+      out: dict with keys: description, size, max_price
+[2] search_listings (via MCP)
+      in:  dict with keys: description, size, max_price
+      out: [] (empty)
+[3] branch
+      →    search came back empty, stopping before suggest_outfit
 ```
 
-**On the MCP move:** <!-- what changed in your code, and whether anything
-behaved differently afterwards. If the rewire didn't work, say exactly where it
-broke — the error text and the last thing that worked. That earns the point in
-full. -->
+The empty one is 3 steps and the happy one is 4, and it makes 0 model calls.
+
+**On the MCP move:** `search_listings` now runs in its own server (`mcp_server.py`), and the loop asks for it with `call_tool` instead of importing it. The results were identical to the direct call, and the empty-search branch still stops the same way. The only new thing is a new way to fail: if the server won't start, the loop now catches that and tells the user to check it.
 
 
 
@@ -298,9 +338,11 @@ One caveat: 503s come and go, so a single clean run doesn't prove the fix. Befor
 
 ## What's Still Broken
 
-<!-- For each criterion still missed: what you'd do, and why you stopped where
-     you did. "I ran out of time" is fine if it's true. Pretending nothing is
-     left is not. -->
+No criterion missed in the after run, but that doesn't mean nothing is left.
+
+- Outages can still happen. The retry only helps when the 503 is short. If Gemini stays down through all 5 attempts, the run still stops with a message. I stopped here because I can't fix Google's servers, and one run isn't enough to know how often that happens.
+- Criterion 3 is still badly worded. It mixes a state check with a model output (the price in the card). I'd split it into two. I left it because the rules say to keep the original, and I didn't get to it.
+- Search is loose. One matching word counts, so "graphic tee" also brings back a mesh top. The first result has been fine every time, so I didn't touch it.
 
 
 
