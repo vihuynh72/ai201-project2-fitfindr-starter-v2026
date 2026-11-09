@@ -13,6 +13,8 @@ Build and test your three tools in `tools.py` first. Then come here.
     python agent.py          runs both example paths below
 """
 
+import re
+
 import config
 import trace
 from tools import search_listings, suggest_outfit, create_fit_card
@@ -40,6 +42,7 @@ def new_session(query: str, wardrobe: dict) -> dict:
         "parsed": {},                # description / size / max_price you pulled out of it
         "search_results": [],        # everything search_listings returned
         "selected_item": None,       # the one you chose — goes into suggest_outfit
+        "outfit_item_id": None,      # id of the item suggest_outfit actually received
         "wardrobe": wardrobe,        # the user's wardrobe
         "outfit_suggestion": None,   # what suggest_outfit returned
         "fit_card": None,            # what create_fit_card returned
@@ -107,9 +110,58 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     """
     session = new_session(query, wardrobe)
 
-    # TODO: delete these two lines and build the loop.
-    session["error"] = "The planning loop isn't built yet — see the TODO in agent.py."
+    # Each pass looks at the session and does the next thing that's missing.
+    count = 0
+    while session["fit_card"] is None and not session["error"]:
+        count += 1
+        trace.check_iterations(count)
+
+        if not session["parsed"]:
+            session["parsed"] = _parse(session["query"])
+
+        elif session["selected_item"] is None:
+            p = session["parsed"]
+            session["search_results"] = search_listings(p["description"], p["size"], p["max_price"])
+            if not session["search_results"]:
+                # the branch: nothing found, so stop here
+                session["error"] = _no_results_message(p)
+            else:
+                session["selected_item"] = session["search_results"][0]
+
+        elif session["outfit_suggestion"] is None:
+            item = session["selected_item"]
+            session["outfit_item_id"] = item["id"]  # what actually went into the tool, for checking state
+            session["outfit_suggestion"] = suggest_outfit(item, session["wardrobe"])
+
+        else:
+            session["fit_card"] = create_fit_card(session["outfit_suggestion"], session["selected_item"])
+
     return session
+
+
+def _parse(query: str) -> dict:
+    """Pull a price and a size out of the query with regex. Whatever is left is the description."""
+    price = re.search(r"(?:under|below|\$)\s*\$?\s*(\d+(?:\.\d+)?)", query, re.I)
+    size = re.search(r"\bsize\s+(xxs|xs|xxl|xl|s|m|l|[a-z]*\d+(?:\.\d+)?)\b", query, re.I)
+    description = query
+    for found in (price, size):
+        if found:
+            description = description.replace(found.group(0), " ")
+    return {
+        "description": " ".join(description.split()).strip(" ,.;"),
+        "size": size.group(1) if size else None,
+        "max_price": float(price.group(1)) if price else None,
+    }
+
+
+def _no_results_message(p: dict) -> str:
+    asked = f"'{p['description']}'"
+    if p["size"]:
+        asked += f" in size {p['size']}"
+    if p["max_price"] is not None:
+        asked += f" under ${p['max_price']:.0f}"
+    return (f"Nothing matched {asked}. Try a higher price, leave out the size, "
+            f"or use fewer or simpler words (like 'tee' instead of 'graphic band tee').")
 
 
 # ── running it directly ───────────────────────────────────────────────────────
